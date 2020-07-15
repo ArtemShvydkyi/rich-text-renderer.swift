@@ -61,25 +61,27 @@ public struct EmptyViewProvider: ViewProvider {
 /// attached to the `RenderingConfiguration` which is available via the `context` Dictionary to attach
 /// a `NSAttributedString.Key`, `UIView` pair to the range of characters that comprise the node.
 public struct ResourceLinkBlockRenderer: NodeRenderer {
-
-    public func render(node: Node, renderer: RichTextRenderer, context: [CodingUserInfoKey: Any]) -> [NSMutableAttributedString] {
-        let embeddedResourceNode = node as! ResourceLinkBlock
-        guard let resolvedResource = embeddedResourceNode.data.resolvedResource else { return [] }
-
-        let provider = context.styleConfig.viewProvider
-
-        let semaphore = DispatchSemaphore(value: 0)
-
-        var view: View!
-
-        DispatchQueue.main.sync {
-            view = provider.view(for: resolvedResource, context: context)
-            semaphore.signal()
-        }
-        _ = semaphore.wait(timeout: DispatchTime.distantFuture)
-        var rendered = [NSMutableAttributedString(string: "\0", attributes: [.embed: view])] // use null character
-        rendered.applyListItemStylingIfNecessary(node: node, context: context)
-        rendered.appendNewlineIfNecessary(node: node)
-        return rendered
+  public func render(node: Node, renderer: RichTextRenderer, context: [CodingUserInfoKey: Any]) -> [NSMutableAttributedString] {
+    let embeddedResourceNode = node as! ResourceLinkBlock
+    guard let resolvedResource = embeddedResourceNode.data.resolvedResource else { return [] }
+    let provider = context.styleConfig.viewProvider
+    let semaphore = DispatchSemaphore(value: 0)
+    var view: View!
+    let callback: () -> Void = {
+      view = provider.view(for: resolvedResource, context: context)
+      semaphore.signal()
     }
+    if Thread.isMainThread {
+      callback()
+    } else {
+      DispatchQueue.main.sync {
+        callback()
+      }
+    }
+    _ = semaphore.wait(timeout: DispatchTime.distantFuture)
+    var rendered = [NSMutableAttributedString(string: "\0", attributes: [.embed: view])] // use null character
+    rendered.applyListItemStylingIfNecessary(node: node, context: context)
+    rendered.appendNewlineIfNecessary(node: node)
+    return rendered
+  }
 }
